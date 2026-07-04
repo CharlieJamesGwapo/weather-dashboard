@@ -1,65 +1,236 @@
-import Image from "next/image";
+'use client';
+
+import React, { useState, useEffect } from 'react';
+import { useCurrentWeather, useForecast, useAirQuality, getWeatherIcon } from '@/app/lib/api';
+import { storage, FavoriteCity } from '@/app/lib/storage';
+import SearchBar from '@/app/components/SearchBar';
+import CurrentWeatherComponent from '@/app/components/CurrentWeather';
+import DayForecast from '@/app/components/DayForecast';
+import HourlyForecastComponent from '@/app/components/HourlyForecast';
+import AQIDisplay from '@/app/components/AQIDisplay';
+import FavoritesList from '@/app/components/FavoritesList';
+import DarkModeToggle from '@/app/components/DarkModeToggle';
 
 export default function Home() {
+  const [apiKey, setApiKey] = useState('');
+  const [city, setCity] = useState('');
+  const [lat, setLat] = useState<number | null>(null);
+  const [lon, setLon] = useState<number | null>(null);
+  const [isDarkMode, setIsDarkMode] = useState(false);
+  const [favorites, setFavorites] = useState<FavoriteCity[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [hasApiKey, setHasApiKey] = useState(false);
+
+  // Load settings on mount
+  useEffect(() => {
+    const storedApiKey = storage.getApiKey();
+    const isDark = storage.getDarkMode();
+    const lastCity = storage.getLastCity();
+    const favs = storage.getFavorites();
+
+    setApiKey(storedApiKey);
+    setHasApiKey(!!storedApiKey);
+    setIsDarkMode(isDark);
+    setFavorites(favs);
+
+    // Initialize dark mode
+    if (isDark) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+
+    // Try to get user's geolocation
+    if (navigator.geolocation && storedApiKey) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          handleGeolocation(position.coords.latitude, position.coords.longitude, storedApiKey);
+        },
+        () => {
+          // Fallback to last city if geolocation fails
+          if (lastCity) {
+            setCity(lastCity);
+          }
+        }
+      );
+    } else if (lastCity && storedApiKey) {
+      setCity(lastCity);
+    }
+  }, []);
+
+  const handleGeolocation = async (latitude: number, longitude: number, key: string) => {
+    try {
+      setLat(latitude);
+      setLon(longitude);
+      // Don't set city name here, let it be fetched from the weather API
+      // The weather API will return the city name
+    } catch (err) {
+      console.error('Geolocation error:', err);
+    }
+  };
+
+  const handleSearch = (searchCity: string, searchLat: number, searchLon: number) => {
+    setCity(searchCity);
+    setLat(searchLat);
+    setLon(searchLon);
+    storage.setLastCity(searchCity);
+    setError('');
+  };
+
+  const handleDarkModeToggle = (isDark: boolean) => {
+    setIsDarkMode(isDark);
+    storage.setDarkMode(isDark);
+  };
+
+  const handleAddFavorite = () => {
+    if (currentWeatherData && lat !== null && lon !== null) {
+      const favorite: FavoriteCity = {
+        name: currentWeatherData.city,
+        lat,
+        lon,
+        country: currentWeatherData.country,
+      };
+      storage.addFavorite(favorite);
+      setFavorites(storage.getFavorites());
+    }
+  };
+
+  const handleRemoveFavorite = () => {
+    if (currentWeatherData) {
+      storage.removeFavorite(currentWeatherData.city);
+      setFavorites(storage.getFavorites());
+    }
+  };
+
+  const handleSelectFavorite = (favorite: FavoriteCity) => {
+    setCity(favorite.name);
+    setLat(favorite.lat);
+    setLon(favorite.lon);
+    storage.setLastCity(favorite.name);
+  };
+
+  // TanStack Query hooks
+  const currentWeatherQuery = useCurrentWeather(city, apiKey);
+  const forecastQuery = useForecast(lat, lon, apiKey);
+  const aqiQuery = useAirQuality(lat, lon, apiKey);
+
+  const currentWeatherData = currentWeatherQuery.data;
+  const forecastData = forecastQuery.data;
+  const aqiData = aqiQuery.data;
+
+  const isFavorite =
+    currentWeatherData ? storage.isFavorite(currentWeatherData.city) : false;
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
+    <main className="min-h-screen bg-gradient-to-br from-blue-50 to-blue-100 dark:from-gray-900 dark:to-gray-800 p-6">
+      <div className="max-w-7xl mx-auto">
+        {/* Header */}
+        <div className="flex justify-between items-center mb-8">
+          <h1 className="text-4xl font-bold text-gray-900 dark:text-white">
+            Weather Dashboard
           </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+          <DarkModeToggle isDark={isDarkMode} onToggle={handleDarkModeToggle} />
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
+
+        {/* API Key Setup */}
+        {!hasApiKey && (
+          <div className="mb-8 bg-yellow-50 dark:bg-yellow-900/30 border border-yellow-300 dark:border-yellow-700 rounded-xl p-6">
+            <p className="text-yellow-800 dark:text-yellow-200 mb-4">
+              Please set your OpenWeather API key to get started.
+            </p>
+            <a
+              href="/settings"
+              className="inline-block px-6 py-2 bg-yellow-500 hover:bg-yellow-600 text-white rounded-lg transition-colors"
+            >
+              Go to Settings →
+            </a>
+          </div>
+        )}
+
+        {/* Search Bar */}
+        {apiKey && (
+          <div className="mb-8 flex justify-center">
+            <SearchBar onSearch={handleSearch} apiKey={apiKey} isLoading={isLoading} />
+          </div>
+        )}
+
+        {/* Error Message */}
+        {error && (
+          <div className="mb-8 bg-red-50 dark:bg-red-900/30 border border-red-300 dark:border-red-700 rounded-xl p-4 text-red-800 dark:text-red-200">
+            {error}
+          </div>
+        )}
+
+        {/* Main Content */}
+        {apiKey && city ? (
+          <>
+            {currentWeatherQuery.isLoading ? (
+              <div className="flex justify-center items-center h-96">
+                <div className="text-2xl text-gray-600 dark:text-gray-400">Loading...</div>
+              </div>
+            ) : currentWeatherQuery.isError ? (
+              <div className="text-center text-red-600 dark:text-red-400 py-12">
+                <p className="text-xl">Error loading weather data. Please try again.</p>
+              </div>
+            ) : currentWeatherData ? (
+              <>
+                {/* Current Weather */}
+                <div className="mb-8">
+                  <CurrentWeatherComponent
+                    data={currentWeatherData}
+                    onAddFavorite={handleAddFavorite}
+                    onRemoveFavorite={handleRemoveFavorite}
+                    isFavorite={isFavorite}
+                  />
+                </div>
+
+                {/* Hourly Forecast */}
+                {forecastData && forecastData.hourly.length > 0 && (
+                  <div className="mb-8">
+                    <HourlyForecastComponent hours={forecastData.hourly} />
+                  </div>
+                )}
+
+                {/* 7-Day Forecast */}
+                {forecastData && forecastData.daily.length > 0 && (
+                  <div className="mb-8">
+                    <DayForecast days={forecastData.daily} />
+                  </div>
+                )}
+
+                {/* Air Quality */}
+                {aqiQuery.isLoading ? (
+                  <div className="mb-8 bg-white dark:bg-gray-800 rounded-2xl p-6 shadow-lg h-96 flex items-center justify-center">
+                    <div className="text-gray-600 dark:text-gray-400">Loading AQI...</div>
+                  </div>
+                ) : aqiData ? (
+                  <div className="mb-8">
+                    <AQIDisplay data={aqiData} />
+                  </div>
+                ) : null}
+
+                {/* Favorites List */}
+                {favorites.length > 0 && (
+                  <div className="mb-8">
+                    <FavoritesList
+                      favorites={favorites}
+                      onSelectFavorite={handleSelectFavorite}
+                      currentCity={currentWeatherData.city}
+                    />
+                  </div>
+                )}
+              </>
+            ) : null}
+          </>
+        ) : apiKey ? (
+          <div className="text-center py-12">
+            <p className="text-xl text-gray-600 dark:text-gray-400 mb-4">
+              Start by searching for a city above
+            </p>
+          </div>
+        ) : null}
+      </div>
+    </main>
   );
 }
